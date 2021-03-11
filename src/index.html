@@ -4,6 +4,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-BmbxuPwQa2lc/FVzBcNJ7UAyJxM6wuqIj61tLrc4wSX0szH/Ev+nYRRuWlolflfl" crossorigin="anonymous">
 
   <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js"></script>
   <script src="loan_engine.js"></script>
 </head>
 <body>
@@ -41,6 +42,7 @@
             <input class="form-control" type="number" v-model.number="input.extraMonthlyPayment">
           </div>
       
+          <p>One time Payments</p>
           <table class="table table-striped">
             <thead>
               <tr>
@@ -50,7 +52,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in input.extraPayments" v-bind:key="item.month">
+              <tr v-for="item in input.extraPayments">
                 <td><input class="form-control-sm" type="number" v-model.number="item.month"></td>
                 <td><input class="form-control-sm" type="number" v-model.number="item.amount"></td>
                 <td><button class="btn btn-close" v-on:click="removeExtraPayment(item.month)"></button></td>
@@ -65,7 +67,21 @@
         </div>
       </div>
     </div>
-      
+    
+    <!-- TODO: Display stats here. -->
+
+    <div v-if="results.length > 0">
+      <div class="row">Total Paid: {{ resultStats.totalPaid.toFixed(2) }}</div>
+      <div class="row">Actual Interest: {{ resultStats.actualInterest.toFixed(2) }}</div>
+      <div class="row">Origial Interest: {{ resultStats.estimatedInterest.toFixed(2) }}</div>
+      <div class="row">Interest Saved: {{ interestSaved.toFixed(2) }}</div>
+      <div class="row">Total Payments: {{ resultStats.actualPayments }} ({{ actualPaymentsMonths }})  </div>
+    </div>
+
+    <div v-show="results.length > 0">
+      <canvas id="loanChart"></canvas>
+    </div>
+
     <table class="table table-striped" v-if="results.length > 0">
       <thead>
         <tr>
@@ -89,6 +105,68 @@
 
   </div>
   <script>
+    function periodToMonths(periods, perYear) {
+      let y = Math.floor(periods / perYear)
+      let m = periods % perYear
+      return [y, m]
+    }
+
+    // Need global because existing charts need to be destroyed
+    loanChartInstance = null
+
+    function makeChart(result) {
+      
+      let principleData = []
+      let interestData = []
+      let totalPaidData = []
+      let labels = []
+
+      let totalInterest = 0.0
+      let totalPaid = 0.0
+
+      for(let i = 0; i < result.length; i++) {
+        totalInterest += result[i].interestPayment
+        totalPaid += result[i].payment
+
+        labels.push(i)
+        principleData.push(Math.round(result[i].principle))
+        interestData.push(Math.round(totalInterest))
+        totalPaidData.push(Math.round(totalPaid))
+      }
+
+      if (loanChartInstance) {
+        loanChartInstance.destroy()
+      }
+
+      let ctx = document.getElementById("loanChart").getContext("2d");
+      loanChartInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: "Remaining Principle",
+              data: principleData,
+              backgroundColor: "#6ea8fe70",
+              borderColor: "#0d6efd"
+            },
+            {
+              label: "Total Interest",
+              data: interestData,
+              backgroundColor: "#ffe69c70",
+              borderColor: "#ffc107"
+            },
+            {
+              label: "Total Payments",
+              data: totalPaidData,
+              backgroundColor: "#a3cfbb70",
+              borderColor: "#20c997"
+            }
+          ]
+        }
+      })
+    }
+
     var vm = new Vue({
       el: "#app",
       data: {
@@ -106,22 +184,45 @@
             }
           ]
         },
-        results: []
+        results: [],
+        resultStats: {
+          actualInterest: 0.0,
+          estimatedInterest: 0.0,
+          totalPaid: 0.0,
+          actualPayments: 0
+        }
+      },
+      computed: {
+        interestSaved: function() {
+          return this.resultStats.estimatedInterest - this.resultStats.actualInterest
+        },
+        actualPaymentsMonths: function() {
+          let apm = periodToMonths(this.resultStats.actualPayments, this.input.paymentPerYear)
+          return `${apm[0]} years ${apm[1]} periods`
+        }
       },
       methods: {
         calculate: function() {
-          // Copy object so the rate can be converted into a deciaml without impacting the UI. This also
-          // converts observer objects into plain ole JavaScript types.
-          let c = {
-            principle: this.input.principle,
-            rate: this.input.rate / 100,
-            compoundPerYear: this.input.compoundPerYear,
-            paymentPerYear: this.input.paymentPerYear,
-            totalPayments: this.input.totalPayments,
-            extraMonthlyPayment: this.input.extraMonthlyPayment,
-            extraPayments: JSON.parse(JSON.stringify(this.input.extraPayments))
-          }
-          this.results = amortizationSchedule(c)
+          // Convert the Vue observable input into a plain json object.
+          let c = JSON.parse(JSON.stringify(this.input))
+
+          // Convert rate from display value to actual decimal value.
+          c.rate = c.rate / 100.0
+
+          let results = LoanEngine.amortizationSchedule(c)
+          let stats = LoanEngine.amortizationStats(results)
+
+          makeChart(results)
+
+          let estRate = c.rate / c.paymentPerYear
+          this.resultStats.estimatedInterest = LoanEngine.estimatedInterest(c.principle, estRate, c.totalPayments)
+
+          this.results = results
+          this.resultStats.actualInterest = stats.actualInterest
+          this.resultStats.totalPaid = stats.totalPaid
+          this.resultStats.actualPayments = stats.actualPayments
+
+
         },
         removeExtraPayment: function(month) {
           const i = this.input.extraPayments.findIndex(x => x.month === month)
