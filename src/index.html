@@ -14,7 +14,7 @@
       <h1>Loan Modeler</h1>
       <p>This page allows you to model loans and the impact of extra payments. Extra payments can be extra paid each month, or one-time additional payments.</p>
     </div>
-    <div class="row justify-content-lg-center">
+    <div class="row justify-content-lg-center mb-3">
       <div class="card col-lg-4">
         <div class="card-body">
           <div class="mb-3">
@@ -68,21 +68,26 @@
       </div>
     </div>
     
-    <!-- TODO: Display stats here. -->
-
-    <div v-if="results.length > 0">
-      <div class="row">Total Paid: {{ resultStats.totalPaid.toFixed(2) }}</div>
-      <div class="row">Actual Interest: {{ resultStats.actualInterest.toFixed(2) }}</div>
-      <div class="row">Origial Interest: {{ resultStats.estimatedInterest.toFixed(2) }}</div>
-      <div class="row">Interest Saved: {{ interestSaved.toFixed(2) }}</div>
-      <div class="row">Total Payments: {{ resultStats.actualPayments }} ({{ actualPaymentsMonths }})  </div>
+    <div v-show="results.length > 0">
+      <div class="row justify-content-lg-center mb-3">
+        <div class="card col-lg-4">
+          <div class="card-body">
+            <h5 class="card-title">Stats</h5>
+            <p class="card-text">Total Paid: {{ resultStats.totalPaid.toFixed(2) }}</p>
+            <p class="card-text">Actual Interest: {{ resultStats.actualInterest.toFixed(2) }}</p>
+            <p class="card-text">Origial Interest: {{ resultStats.estimatedInterest.toFixed(2) }}</p>
+            <p class="card-text">Interest Saved: {{ interestSaved.toFixed(2) }}</p>
+            <p class="card-text">Total Payments: {{ resultStats.actualPayments }} ({{ actualPaymentsMonths }})</p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div v-show="results.length > 0">
       <canvas id="loanChart"></canvas>
     </div>
 
-    <table class="table table-striped" v-if="results.length > 0">
+    <table class="table table-striped" v-show="results.length > 0">
       <thead>
         <tr>
           <th>Period</th>
@@ -114,7 +119,7 @@
     // Need global because existing charts need to be destroyed
     loanChartInstance = null
 
-    function makeChart(result) {
+    function makeChart(result, periodsPerYear) {
       
       let principleData = []
       let interestData = []
@@ -128,7 +133,9 @@
         totalInterest += result[i].interestPayment
         totalPaid += result[i].payment
 
-        labels.push(i)
+        let ptm = periodToMonths(i + 1, periodsPerYear)
+
+        labels.push(`${ptm[0]}yr ${ptm[1]}p`)
         principleData.push(Math.round(result[i].principle))
         interestData.push(Math.round(totalInterest))
         totalPaidData.push(Math.round(totalPaid))
@@ -212,7 +219,7 @@
           let results = LoanEngine.amortizationSchedule(c)
           let stats = LoanEngine.amortizationStats(results)
 
-          makeChart(results)
+          makeChart(results, c.paymentPerYear)
 
           let estRate = c.rate / c.paymentPerYear
           this.resultStats.estimatedInterest = LoanEngine.estimatedInterest(c.principle, estRate, c.totalPayments)
